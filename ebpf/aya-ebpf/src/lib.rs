@@ -85,43 +85,49 @@ pub trait EbpfContext {
 }
 
 mod intrinsics {
+    use aya_ebpf_cty::c_void;
+
     use super::cty::c_int;
 
     #[unsafe(no_mangle)]
-    unsafe extern "C" fn memset(s: *mut u8, c: c_int, n: usize) {
+    unsafe extern "C" fn memset(s: *mut c_void, c: c_int, n: usize) -> *mut c_void {
+        let s = s.cast::<u8>();
         #[expect(clippy::cast_sign_loss, reason = "architecture-specific")]
         let b = c as u8;
         for i in 0..n {
             unsafe { *s.add(i) = b }
         }
+        s.cast()
     }
 
     #[unsafe(no_mangle)]
-    unsafe extern "C" fn memcpy(dest: *mut u8, src: *mut u8, n: usize) {
-        unsafe { copy_forward(dest, src, n) }
+    unsafe extern "C" fn memcpy(dest: *mut c_void, src: *const c_void, n: usize) -> *mut c_void {
+        unsafe { copy_forward(dest.cast(), src.cast(), n) }
+        dest
     }
 
     #[unsafe(no_mangle)]
-    unsafe extern "C" fn memmove(dest: *mut u8, src: *mut u8, n: usize) {
+    unsafe extern "C" fn memmove(dest: *mut c_void, src: *const c_void, n: usize) -> *mut c_void {
         let delta = (dest as usize).wrapping_sub(src as usize);
         if delta >= n {
             // We can copy forwards because either dest is far enough ahead of src,
             // or src is ahead of dest (and delta overflowed).
-            unsafe { copy_forward(dest, src, n) }
+            unsafe { copy_forward(dest.cast(), src.cast(), n) }
         } else {
-            unsafe { copy_backward(dest, src, n) }
+            unsafe { copy_backward(dest.cast(), src.cast(), n) }
         }
+        dest
     }
 
     #[inline(always)]
-    unsafe fn copy_forward(dest: *mut u8, src: *mut u8, n: usize) {
+    unsafe fn copy_forward(dest: *mut u8, src: *const u8, n: usize) {
         for i in 0..n {
             unsafe { *dest.add(i) = *src.add(i) }
         }
     }
 
     #[inline(always)]
-    unsafe fn copy_backward(dest: *mut u8, src: *mut u8, n: usize) {
+    unsafe fn copy_backward(dest: *mut u8, src: *const u8, n: usize) {
         for i in (0..n).rev() {
             unsafe { *dest.add(i) = *src.add(i) }
         }
